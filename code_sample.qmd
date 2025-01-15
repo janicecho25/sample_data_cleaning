@@ -1,0 +1,267 @@
+---
+title: "Data Cleaning Sample"
+author: Janice Cho
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+---
+
+## Libraries
+Load libraries.
+```{r load_library, message = FALSE}
+library(dplyr)
+library(tidyr)
+library(readxl)
+library(gt)
+library(gtExtras)
+```
+
+
+## Load Data
+
+Load 9 waves of KLoSA data (light format) into 9 dataframes.
+```{r load_data, include = FALSE}
+all_waves <- list()
+for (i in 1:9) {
+  file_name <- paste0("lt_data/Lt0", i, ".xlsx")
+  data_name <- paste0("wave_", i)
+  all_waves[[i]] <- assign(data_name, read_excel(file_name))
+}
+```
+
+## Clean Data
+
+### Select variables of interest:
+
+Display IDs and names of variables (for presentation purposes).
+```{r var_table, echo = FALSE}
+var_ids = c("pid",
+            "hhid",
+            "w0#A002_age",
+            "w0#gender1",
+            "w0#marital",
+            "w0#hhsize",
+            "w0#edu",
+            "w0#wgt_c",
+            "w0#wgt_p",
+            "w0#pinc",
+            "w0#present_ecotype",
+            "w0#retired",
+            "w0#G031",
+            "w0#transferfrom",
+            "w0#transferto",
+            "w0#Ba003",
+            "w0#hhnetassets")
+
+var_labels = c("personal id",
+               "household id",
+               "age",
+               "gender",
+               "current marital status",
+               "household size",
+               "highest level of education",
+               "cross-sectional weight",
+               "longitudinal weight",
+               "total personal income",
+               "present economic activity status",
+               "whether or not retired",
+               "perceived socioeconomic status (starting from wave 2)",
+               "total amount of financial support from\nchildren+parents+other family",
+               "total amount of financial support offered\nto children+parents+other family",
+               "number of alive children",
+               "household net assets")
+
+var_id_table <- data.frame(var_ids, var_labels) |> 
+  gt() |> 
+  gt_add_divider(
+    var_ids,
+    weight = px(0.75)
+  ) |>
+  tab_header(
+    title = "Variables of Interest"
+  ) |>
+  tab_style(
+    style = list(
+      cell_fill(color = "#e3e3e3")
+    ),
+    locations = cells_title(groups = "title")
+  ) |> 
+  cols_label(
+    var_ids = "ID",
+    var_labels = "Variable"
+  ) |> 
+  cols_width(var_labels ~ px(200))
+
+var_id_table
+  
+```
+
+Gather names of variables of interest from each wave.
+```{r get_var_names, include = FALSE}
+# Function to assign variable names for each wave.
+assign_var_names <- function(suffix, len = 9) {
+  vars_list <- vector("character", length = len)
+  for (i in 1:len) {
+    vars_list[i] <- paste0("w0", i, suffix)
+  }
+  return(vars_list)
+}
+
+# Add variables missing from wave 1 to wave 1 and set everything to NA.
+wave_1 <- wave_1 |> 
+  mutate(w01G031 = NA,
+         w01wgt_p = NA,
+         w01hhnetassets = NA)
+all_waves[[1]] <- wave_1
+
+# Get variable names for each variable of interest.
+cross_weight_vars <- assign_var_names(suffix = "wgt_c")
+long_weight_vars <- assign_var_names(suffix = "wgt_p")
+age_vars <- assign_var_names(suffix = "A002_age")
+gender_vars <- assign_var_names(suffix = "gender1")
+marital_vars <- assign_var_names(suffix = "marital")
+hhsize_vars <- assign_var_names(suffix = "hhsize")
+edu_vars <- assign_var_names(suffix = "edu")
+pinc_vars <- assign_var_names(suffix = "pinc")
+retired_vars <- assign_var_names(suffix = "retired")
+ecotype_vars <- assign_var_names(suffix = "present_ecotype")
+perceived_SES_vars <- assign_var_names(suffix = "G031")
+transfer_from_vars <- assign_var_names(suffix = "transferfrom")
+transfer_to_vars <- assign_var_names(suffix = "transferto")
+alive_child_vars <- assign_var_names(suffix = "Ba003")
+hh_asset_vars <- assign_var_names(suffix = "hhnetassets")
+
+# Rename wave 9 "HHID" to "hhid".
+if (!("hhid" %in% colnames(wave_9))) {
+  wave_9 <- wave_9 |> 
+    rename(hhid = HHID)
+  all_waves[[9]] <- wave_9
+}
+```
+
+Select variables of interest in each wave.
+```{r select_waves, echo = FALSE}
+# Create select_waves list to hold dataframes of clean waves.
+select_waves <- list()
+
+# Create vector of years corresponding to waves.
+years <- seq.int(from = 2006, to = 2022, by = 2)
+
+# Function to select the same variables of interest from each dataframe.
+select_vars <- function(i, vars_of_interest) {
+  vars_of_interest <- c("pid", "hhid", vars_of_interest)
+  
+  select_df <- all_waves[[i]] |> 
+    select(all_of(vars_of_interest)) |> 
+    mutate(wave = i,
+           year = years[i]) |> 
+    select(wave, year, everything()) |> 
+    rename_with(~ gsub("w0\\d{1}", "", .x), starts_with("w0")) |> 
+    rename(
+      age = A002_age,
+      gender = gender1,
+      perceived_SES = G031,
+      alive_child = Ba003,
+      ecotype = present_ecotype
+    )
+  
+  return(select_df)
+}
+
+# Select variables of interest in each wave and store in select_waves.
+for (i in 1:9) {
+  vars_of_interest <- c(cross_weight_vars[i],
+                        long_weight_vars[i],
+                        age_vars[i],
+                        gender_vars[i],
+                        marital_vars[i],
+                        hhsize_vars[i],
+                        edu_vars[i],
+                        pinc_vars[i],
+                        retired_vars[i],
+                        ecotype_vars[i],
+                        perceived_SES_vars[i],
+                        transfer_from_vars[i],
+                        transfer_to_vars[i],
+                        alive_child_vars[i],
+                        hh_asset_vars[i])
+  
+  select_waves[[i]] <- select_vars(i, vars_of_interest)
+}
+
+head(select_waves[[9]])
+```
+
+Create single dataframe to hold all waves.
+```{r combine_select_waves, include = FALSE}
+all_select_waves <- bind_rows(select_waves)
+head(all_select_waves, 10)
+```
+
+### Recode variables:
+
+Recode variables where necessary.
+```{r recode_variables}
+# Create vectors of factor levels.
+perceived_SES_levels = c("Low", "Middle", "High")
+marital_levels = c("Married", "Widowed", "Divorced/Separated", "Single")
+edu_levels = c("Less than high school", "High school", "College or above")
+ecotype_levels = c("Employed", "Unemployed", "Economically inactive")
+age_levels = c("45-54", "55-64", "65-74", "75-84", "85+")
+
+# Recode variables.
+all_clean <- all_select_waves |> 
+  mutate(
+    # Turn "I don't know" and "Refuse to Answer" into NA for personal income.
+    pinc = if_else(pinc < 0, NA, pinc),
+    
+    # Turn perceived_SES into factor.
+    perceived_SES = case_when(
+      perceived_SES %in% 5:6 ~ "Low",
+      perceived_SES %in% 3:4 ~ "Middle",
+      perceived_SES %in% 1:2 ~ "High",
+      .default = NA
+    ),
+    perceived_SES = factor(perceived_SES, levels = perceived_SES_levels),
+    
+    # Turn marital into factor.
+    marital = case_when(
+      marital == 1 ~ "Married",
+      marital == 4 ~ "Widowed",
+      marital %in% 2:3 ~ "Divorced/Separated",
+      marital == 5 ~ "Single"
+    ),
+    marital = factor(marital, levels = marital_levels),
+    
+    # Turn education level into factor.
+    edu = case_when(
+      edu <= 2 ~ "Less than high school",
+      edu == 3 ~ "High school",
+      edu >= 4 ~ "College or above"),
+    edu = factor(edu, levels = edu_levels),
+    
+    # Turn economic activity status into factor.
+    ecotype = case_when(
+      ecotype == 1 ~ "Employed",
+      ecotype == 2 ~ "Unemployed",
+      ecotype == 3 ~ "Economically inactive"),
+    ecotype = factor(ecotype, levels = ecotype_levels),
+    
+    # Turn gender into factor.
+    gender = if_else(gender == 1, "Male", "Female"),
+    gender = factor(gender, levels = c("Male", "Female")),
+    
+    # Add age group category.
+    age_cat = case_when(
+      age < 55 ~ "45-54",
+      age %in% 55:64 ~ "55-64",
+      age %in% 65:74 ~ "65-74",
+      age %in% 75:84 ~ "75-84",
+      age >= 85 ~ "85+"
+    ),
+    age_cat = factor(age_cat, levels = age_levels)
+  )
+
+head(all_clean |> filter(wave == 2), 10)
+```
